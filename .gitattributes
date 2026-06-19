@@ -8,3 +8,10 @@
 *.jpeg binary
 *.gif  binary
 *.ico  binary
+
+# GitHub language statistics (Linguist):
+# The generated dashboard embeds Plotly's library inline, which otherwise makes
+# the repo look like a ~99% HTML project. Exclude generated/vendored files so
+# GitHub reports this correctly as a Python project.
+output/*    linguist-generated=true
+*.html      linguist-vendored=true
