@@ -1,0 +1,12 @@
+# Core data stack
+numpy>=1.24
+pandas>=2.0
+
+# Interactive HTML dashboard
+plotly>=5.18
+
+# Static charts for the PDF
+matplotlib>=3.7
+
+# PDF generation
+reportlab>=4.0
