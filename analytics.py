@@ -339,12 +339,16 @@ def generate_insights(kpis: dict,
         )
 
     # 8) AOV movement over the period.
+    #    The absolute figure quoted here is the single source of truth
+    #    (kpis["aov"], the same value shown in the KPI table); only the
+    #    percentage describes the half-over-half trend.
     aov_change = pop["aov"]["change"]
     if abs(aov_change) >= 0.03:
         direction = "increased" if aov_change > 0 else "declined"
         insights.append(
-            f"Average order value {direction} {fmt_pct(abs(aov_change))} over the "
-            f"period to {fmt_currency(pop['aov']['second'], 2)}, "
+            f"Average order value {direction} {fmt_pct(abs(aov_change))} "
+            f"half-over-half, with the period average at "
+            f"{fmt_currency(kpis['aov'], 2)} -- "
             f"{'supporting' if aov_change > 0 else 'pressuring'} margin."
         )
 

@@ -22,14 +22,13 @@ import matplotlib
 matplotlib.use("Agg")  # headless backend -- no display required
 import matplotlib.pyplot as plt
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     Image,
-    ListFlowable,
-    ListItem,
+    KeepTogether,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -58,8 +57,14 @@ MUTED = colors.HexColor("#64748b")
 ROW_ALT = colors.HexColor("#f1f5f9")
 BORDER = colors.HexColor("#e5e7eb")
 
-MPL_PRIMARY = "#2563eb"
-MPL_SUCCESS = "#10b981"
+# Matplotlib colours -- kept byte-for-byte identical to the HTML dashboard
+# palette so both deliverables share one visual identity.
+MPL_PRIMARY = "#2563eb"   # brand blue
+MPL_SUCCESS = "#10b981"   # accent green
+MPL_DANGER = "#ef4444"    # red (under-performance)
+MPL_INK = "#0f172a"       # near-black for titles
+MPL_MUTED = "#64748b"     # slate for secondary labels
+MPL_GRID = "#e5e7eb"      # light grid lines
 MPL_PALETTE = ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4"]
 
 CONTENT_WIDTH = A4[0] - 4 * cm  # page width minus left+right margins
@@ -91,9 +96,12 @@ def _styles() -> dict[str, ParagraphStyle]:
             "Body", parent=base["Normal"], fontName="Helvetica",
             fontSize=10, textColor=INK, leading=15,
         ),
+        # Hanging indent: the bullet sits at the left margin (negative first-line
+        # indent) and wrapped lines align under the text, not the bullet.
         "insight": ParagraphStyle(
             "Insight", parent=base["Normal"], fontName="Helvetica",
-            fontSize=10, textColor=INK, leading=15,
+            fontSize=10, textColor=INK, leading=14,
+            leftIndent=16, firstLineIndent=-16, spaceAfter=5,
         ),
         "cell": ParagraphStyle(
             "Cell", parent=base["Normal"], fontName="Helvetica",
@@ -164,15 +172,25 @@ def chart_roas(data: ReportData, path: Path) -> Path:
     """ROAS by paid channel vs. the blended average."""
     paid = data.channel.dropna(subset=["roas"]).sort_values("roas")
     blended = data.kpis["roas"]
-    bar_colors = [MPL_SUCCESS if v >= blended else "#ef4444" for v in paid["roas"]]
-    fig, ax = plt.subplots(figsize=(9.5, 2.8))
+    bar_colors = [MPL_SUCCESS if v >= blended else MPL_DANGER for v in paid["roas"]]
+    fig, ax = plt.subplots(figsize=(9.5, 3.0))
     bars = ax.bar(paid["channel"], paid["roas"], color=bar_colors, width=0.5)
-    ax.axhline(blended, color="#64748b", ls="--", lw=1.2)
-    ax.text(len(paid) - 0.5, blended, f" Blended {blended:.1f}x",
-            va="bottom", ha="right", color="#64748b", fontsize=8.5)
+
+    # Reference line for the blended average, with its label anchored *inside*
+    # the axes on the left (axes-fraction x, data-coordinate y) so it can never
+    # overflow the right edge.
+    ax.axhline(blended, color=MPL_MUTED, ls="--", lw=1.2)
+    ax.text(0.012, blended, f"Blended average {blended:.1f}x",
+            transform=ax.get_yaxis_transform(), va="bottom", ha="left",
+            color=MPL_MUTED, fontsize=8.5)
+
     ax.bar_label(bars, fmt="%.1fx", padding=3, fontsize=9)
     ax.set_ylabel("ROAS (x)")
-    ax.grid(axis="y", color="#e5e7eb", lw=0.8)
+    ax.set_title("Return on Ad Spend by Paid Channel", fontsize=11,
+                 fontweight="bold", color=MPL_INK, pad=8, loc="left")
+    # Headroom so the tallest bar's label and the reference label aren't clipped.
+    ax.set_ylim(0, paid["roas"].max() * 1.18)
+    ax.grid(axis="y", color=MPL_GRID, lw=0.8)
     ax.set_axisbelow(True)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
@@ -203,11 +221,16 @@ def _banner(data: ReportData, st: dict) -> Table:
 
 
 def _section_bar(text: str, st: dict) -> Table:
-    """A coloured section heading band."""
-    t = Table([[Paragraph(text, st["section"])]], colWidths=[CONTENT_WIDTH])
+    """A brand-blue section heading band with a green accent stripe."""
+    accent = 6  # width of the green stripe in points
+    t = Table([["", Paragraph(text, st["section"])]],
+              colWidths=[accent, CONTENT_WIDTH - accent])
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), INK),
-        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("BACKGROUND", (0, 0), (0, 0), SUCCESS),   # green accent stripe
+        ("BACKGROUND", (1, 0), (1, 0), PRIMARY),   # brand-blue band
+        ("LEFTPADDING", (0, 0), (0, 0), 0),
+        ("RIGHTPADDING", (0, 0), (0, 0), 0),
+        ("LEFTPADDING", (1, 0), (1, 0), 12),
         ("TOPPADDING", (0, 0), (-1, -1), 7),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
     ]))
@@ -228,8 +251,8 @@ def _styled_table(rows: list[list], col_widths: list[float],
         ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
         ("ALIGN", (0, 0), (0, -1), "LEFT"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("LEFTPADDING", (0, 0), (-1, -1), 9),
         ("RIGHTPADDING", (0, 0), (-1, -1), 9),
         ("LINEBELOW", (0, 0), (-1, -1), 0.5, BORDER),
@@ -261,7 +284,7 @@ def _kpi_table(data: ReportData, st: dict) -> Table:
         ("Total Ad Spend", fmt_currency(k["total_ad_spend"]), None),
         ("Orders", fmt_number(k["orders"]), "orders"),
         ("Average Order Value", fmt_currency(k["aov"], 2), "aov"),
-        ("Blended ROAS", f"{k['roas']:.2f}x", "roas"),
+        ("Blended ROAS", f"{k['roas']:.1f}x", "roas"),
         ("Gross Margin", fmt_pct(k["gross_margin"]), None),
         ("New Customer Rate", fmt_pct(k["new_customer_rate"]), None),
     ]
@@ -282,21 +305,24 @@ def _kpi_table(data: ReportData, st: dict) -> Table:
                                 CONTENT_WIDTH * 0.25], extra)
 
 
-def _insights_list(data: ReportData, st: dict) -> ListFlowable:
-    items = [
-        ListItem(Paragraph(text, st["insight"]), leftIndent=10,
-                 value="bullet", bulletColor=PRIMARY)
-        for text in data.insights
-    ]
-    return ListFlowable(items, bulletType="bullet", bulletColor=PRIMARY,
-                        leftIndent=14, bulletFontSize=8)
+def _insights_list(data: ReportData, st: dict) -> list:
+    """
+    Render each insight as a bulleted paragraph.
+
+    A real bullet glyph (``&bull;``) is prepended inline and coloured brand-blue;
+    the paragraph style's hanging indent keeps wrapped lines aligned. This avoids
+    ReportLab's ``ListItem(value=...)`` pitfall, which prints the literal bullet
+    *name* instead of a glyph.
+    """
+    marker = f'<font color="#2563eb"><b>&bull;</b></font>&nbsp;&nbsp;'
+    return [Paragraph(marker + text, st["insight"]) for text in data.insights]
 
 
 def _channel_table(data: ReportData, st: dict) -> Table:
     header = ["Channel", "Revenue", "Orders", "AOV", "Ad Spend", "ROAS"]
     rows = [header]
     for _, r in data.channel.iterrows():
-        roas = "--" if r["roas"] != r["roas"] else f"{r['roas']:.2f}x"  # NaN check
+        roas = "--" if r["roas"] != r["roas"] else f"{r['roas']:.1f}x"  # NaN check
         spend = "--" if r["spend"] == 0 else fmt_currency(r["spend"])
         rows.append([
             r["channel"], fmt_currency(r["revenue"]), fmt_number(r["orders"]),
@@ -363,36 +389,45 @@ def build(data: ReportData, output_path: str | Path = "output/report.pdf") -> Pa
         img_category = chart_category(data, tmp / "category.png")
         img_roas = chart_roas(data, tmp / "roas.png")
 
+        # Each performance section is wrapped in KeepTogether so its heading,
+        # chart and table never split across a page boundary.
+        channel_block = KeepTogether([
+            _section_bar("Channel Performance", st),
+            Spacer(1, 8),
+            _image(img_channel, width=CONTENT_WIDTH * 0.62),
+            Spacer(1, 8),
+            _channel_table(data, st),
+        ])
+        category_block = KeepTogether([
+            _section_bar("Category Performance", st),
+            Spacer(1, 8),
+            _image(img_category, width=CONTENT_WIDTH * 0.62),
+            Spacer(1, 8),
+            _category_table(data, st),
+        ])
+
         story = [
             _banner(data, st),
             Spacer(1, 14),
             _section_bar("Executive Summary", st),
             Spacer(1, 8),
             _kpi_table(data, st),
-            Spacer(1, 16),
+            Spacer(1, 12),
             _section_bar("Key Insights", st),
-            Spacer(1, 8),
-            _insights_list(data, st),
+            Spacer(1, 7),
+            *_insights_list(data, st),
             PageBreak(),
 
             _section_bar("Revenue Trend", st),
-            Spacer(1, 8),
+            Spacer(1, 4),
             _image(img_daily),
-            Spacer(1, 6),
+            Spacer(1, 10),
             _image(img_roas),
             PageBreak(),
 
-            _section_bar("Channel Performance", st),
-            Spacer(1, 8),
-            _image(img_channel, width=CONTENT_WIDTH * 0.62),
-            Spacer(1, 8),
-            _channel_table(data, st),
+            channel_block,
             Spacer(1, 18),
-            _section_bar("Category Performance", st),
-            Spacer(1, 8),
-            _image(img_category, width=CONTENT_WIDTH * 0.62),
-            Spacer(1, 8),
-            _category_table(data, st),
+            category_block,
         ]
 
         doc = SimpleDocTemplate(
